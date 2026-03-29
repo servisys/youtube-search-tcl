@@ -3,7 +3,10 @@
 # yt-search.tcl
 # YouTube search utility for Tcl using YouTube Data API v3.
 
-set yt_search_version "0.4.0"
+set yt_search_version "0.4.1"
+
+# Debug toggle (0 = off, 1 = on)
+set yt_debug 0
 
 proc url_encode {s} {
     set out ""
@@ -262,6 +265,51 @@ proc iso8601_to_readable {iso_duration} {
     }
 }
 
+proc yt_debug_allowed {hand} {
+    # For simplicity, allow owner (you can restrict further)
+    # 0 = anyone, 1 = owne yt_debug
+    
+    set q [string trim $text]
+    
+    if {$yt_debug} {
+        putlog "\[yt-search\] Query from $nick in $chan: $q"
+    }
+    
+    if {$q eq ""} {
+        puthelp "PRIVMSG $chan :$nick: Uso: !yt <ricerca>"
+        return
+    }
+    
+    if {[catch {set results [youtube_search $q 3]} err]} {
+        if {$yt_debug} {
+            putlog "\[yt-search ERROR\] $err"
+        }per gestire il debug."
+        return
+    }
+    
+    set arg [string tolower [string trim $text]]
+    
+    if {$arg eq "" || $arg eq "status"} {
+        set st [expr {$yt_debug ? "ON" : "OFF"}]
+        puthelp "PRIVMSG $chan :$nick: debug attuale: $st"
+        return
+    }
+    
+    if {$arg eq "on" || $arg eq "1"} {
+        set yt_debug 1
+    } elseif {$arg eq "off" || $arg eq "0"} {
+        set yt_debug 0
+    } elseif {$arg eq "toggle"} {
+        set yt_debug [expr {!$yt_debug}]
+    } else {
+        puthelp "PRIVMSG $chan :$nick: uso: !ytdebug on|off|toggle|status"
+        return
+    }
+    
+    set st [expr {$yt_debug ? "ON" : "OFF"}]
+    puthelp "PRIVMSG $chan :$nick: debug ora: $st"
+}
+
 # IRC command handler for !yt
 proc yt_search_cmd {nick host hand chan text} {
     global youtube_api_key
@@ -316,7 +364,10 @@ proc format_number {num} {
         } else {
             set result "[string index $num $i]$result"
         }
-        incr count
+catch {unbind pub - "!ytdebug" yt_debug_cmd}
+
+bind pub - "!yt" yt_search_cmd
+bind pub - "!ytdebug" yt_debug
     }
     return $result
 }
