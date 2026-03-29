@@ -36,6 +36,12 @@ proc parse_search_results {json} {
     # Extract each item block roughly between "id" and "snippet" occurrence.
     set blocks [regexp -all -inline {"videoId"\s*:\s*"[^"]+"[^\{\}]*"title"\s*:\s*"(?:[^"\\]|\\.)*"} $json]
 
+    putlog "\[yt-search PARSER\] Found [llength $blocks] blocks in JSON response"
+    
+    if {[llength $blocks] == 0} {
+        putlog "\[yt-search PARSER\] JSON snippet (first 500 chars): [string range $json 0 500]"
+    }
+
     foreach block $blocks {
         set videoId ""
         set title ""
@@ -66,16 +72,24 @@ proc youtube_search {query {max_results 5}} {
 
     set url "https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=$max_results&q=$encoded_query&key=$api_key"
 
+    putlog "\[yt-search DEBUG\] Query: $query | Encoded: $encoded_query | Max results: $max_results"
+    
     set cmd [list curl -sS --connect-timeout 10 --max-time 30 $url]
     if {[catch {set response [exec {*}$cmd]} err]} {
+        putlog "\[yt-search CURL ERROR\] $err"
         error "Errore curl: $err"
     }
 
+    putlog "\[yt-search DEBUG\] Response length: [string length $response] bytes"
+    
     if {[regexp {"error"\s*:\s*\{} $response]} {
+        putlog "\[yt-search API ERROR\] $response"
         error "Errore API YouTube: $response"
     }
 
-    return [parse_search_results $response]
+    set results [parse_search_results $response]
+    putlog "\[yt-search DEBUG\] Found [llength $results] results"
+    return $results
 }
 
 proc print_results {results} {
@@ -97,18 +111,22 @@ proc yt_search_cmd {nick host hand chan text} {
     global youtube_api_key
     
     set q [string trim $text]
+    putlog "\[yt-search CMD\] User: $nick | Channel: $chan | Query: '$q'"
+    
     if {$q eq ""} {
         puthelp "PRIVMSG $chan :$nick: Uso: !yt <ricerca>"
         return
     }
     
     if {[catch {set results [youtube_search $q 3]} err]} {
+        putlog "\[yt-search ERROR\] $err"
         puthelp "PRIVMSG $chan :$nick: Errore: $err"
         return
     }
     
     if {[llength $results] == 0} {
-        puthelp "PRIVMSG $chan :$nick: Nessun risultato trovato."
+        putlog "\[yt-search\] No results found for query: $q"
+        puthelp "PRIVMSG $chan :$nick: Nessun risultato trovato per '$q'"
         return
     }
     
