@@ -92,6 +92,42 @@ proc print_results {results} {
     }
 }
 
+# IRC command handler for !yt
+proc yt_search_cmd {nick host hand chan text} {
+    global youtube_api_key
+    
+    set q [string trim $text]
+    if {$q eq ""} {
+        puthelp "PRIVMSG $chan :$nick: Uso: !yt <ricerca>"
+        return
+    }
+    
+    if {[catch {set results [youtube_search $q 3]} err]} {
+        puthelp "PRIVMSG $chan :$nick: Errore: $err"
+        return
+    }
+    
+    if {[llength $results] == 0} {
+        puthelp "PRIVMSG $chan :$nick: Nessun risultato trovato."
+        return
+    }
+    
+    set i 1
+    foreach item $results {
+        set title [dict get $item title]
+        set url [dict get $item url]
+        puthelp "PRIVMSG $chan :$nick: $i. $title"
+        puthelp "PRIVMSG $chan :    $url"
+        incr i
+    }
+}
+
+# Safe bind registration
+catch {unbind pub - "!yt" yt_search_cmd}
+bind pub - "!yt" yt_search_cmd
+
+putlog "✓ YouTube search module loaded"
+
 if {[info exists ::argv0] && [file tail [info script]] eq [file tail $::argv0]} {
     if {[llength $::argv] < 1} {
         puts "Uso: tclsh yt-search.tcl <query> ?max_results?"
