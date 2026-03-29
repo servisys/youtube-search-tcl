@@ -32,42 +32,51 @@ proc json_unescape_basic {s} {
 
 proc parse_search_results {json} {
     set results {}
-
-    # Extract items array from JSON response
-    # Match "items": [ ... ]
-    if {![regexp {"items"\s*:\s*\[(.*?)\]\s*[,}]} $json -> items_json]} {
-        putlog "\[yt-search PARSER\] Could not find items array in JSON"
-        return $results
-    }
-
-    # Split items by "kind": "youtube#searchResult" to isolate each item
-    set items [regexp -all -inline {"kind"\s*:\s*"youtube#searchResult".*?(?="kind"\s*:\s*"youtube#searchResult"|$)} $items_json]
     
-    putlog "\[yt-search PARSER\] Found [llength $items] items in array"
-
-    foreach item $items {
-        set videoId ""
-        set title ""
-
-        # Extract videoId from "id": { "kind": "youtube#video", "videoId": "..." }
-        if {[regexp {"videoId"\s*:\s*"([^"]+)"} $item -> videoId]} {
-            putlog "\[yt-search PARSER\] Extracted videoId: $videoId"
-        } else {
-            putlog "\[yt-search PARSER\] Could not extract videoId from item"
-            continue
+    # Simple approach: find all videoId and title pairs
+    # Look for "videoId": "..." and then "title": "..."
+    
+    set videoid_pattern {videoId['"]\s*:\s*['"](.*?)['"]}
+    set title_pattern {title['"]\s*:\s*['"](.*?)['"]}
+    
+    # Extract all videoIds first
+    set videoIds {}
+    set pos 0
+    while {[regexp -start $pos -indices $videoid_pattern $json match] != 0} {
+        set match_text [string range $json [lindex $match 0] [lindex $match 1]]
+        if {[regexp {['"](.*?)['"]} $match_text -> vid]} {
+            lappend videoIds $vid
         }
-
-        # Extract title from "snippet": { ... "title": "..." ... }
-        if {[regexp {"title"\s*:\s*"((?:[^"\\]|\\.)*)"} $item -> title]} {
+        set pos [expr {[lindex $match 1] + 1}]
+    }
+    
+    # Extract all titles
+    set titles {}
+    set pos 0
+    while {[regexp -start $pos -indices $title_pattern $json match] != 0} {
+        set match_text [string range $json [lindex $match 0] [lindex $match 1]]
+        if {[regexp {['"](.*?)['"]} $match_text -> title]} {
             set title [json_unescape_basic $title]
-            putlog "\[yt-search PARSER\] Extracted title: $title"
-            set url "https://www.youtube.com/watch?v=$videoId"
-            lappend results [dict create title $title url $url videoId $videoId]
-        } else {
-            putlog "\[yt-search PARSER\] Could not extract title from item with videoId: $videoId"
+            lappend titles $title
+        }
+        set pos [expr {[lindex $match 1] + 1}]
+    }
+    
+    putlog "\[yt-search PARSER\] Found [llength $videoIds] videoIDs and [llength $titles] titles"
+    
+    # Pair them up (should be roughly aligned due to YouTube API structure)
+    set count [expr {[llength $videoIds] < [llength $titles] ? [llength $videoIds] : [llength $titles]}]
+    for {set i 0} {$i < $count} {incr i} {
+        set vid [lindex $videoIds $i]
+        set title [lindex $titles $i]
+        
+        if {$vid ne "" && $title ne ""} {
+            set url "https://www.youtube.com/watch?v=$vid"
+            lappend results [dict create title $title url $url videoId $vid]
+            putlog "\[yt-search PARSER\] Result $i: $title"
         }
     }
-
+    
     return $results
 }
 
