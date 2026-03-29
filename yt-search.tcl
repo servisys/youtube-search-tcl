@@ -3,7 +3,7 @@
 # yt-search.tcl
 # YouTube search utility for Tcl using YouTube Data API v3.
 
-set yt_search_version "0.2.1"
+set yt_search_version "0.2.2"
 
 proc url_encode {s} {
     set out ""
@@ -34,84 +34,98 @@ proc json_unescape_basic {s} {
 
 proc parse_search_results {json} {
     set results {}
+    set result_count 0
     
-    # Find items array first
-    if {![string first "\"items\":" $json] >= 0} {
-        putlog "\[yt-search PARSER\] No items array found in JSON"
+    # Debug: log first 800 chars of response to see structure
+    putlog "\[yt-search PARSER\] JSON sample (first 800 chars):\n[string range $json 0 800]"
+    
+    # Very simple approach: split by items and extract videoId and title
+    # Find the items array start
+    set items_start [string first "\"items\":" $json]
+    if {$items_start < 0} {
+        putlog "\[yt-search PARSER\] ERROR: Could not find items array"
         return $results
     }
     
-    # Split by individual search results using a simple approach
-    # Each result starts with "kind": "youtube#searchResult"
-    set item_pattern {kind.*?youtube#searchResult}
+    set items_json [string range $json $items_start end]
+    putlog "\[yt-search PARSER\] Items substring length: [string length $items_json]"
     
-    # Extract all blocks between each searchResult
-    set pos [string first "\"items\":" $json]
-    if {$pos < 0} {
-        putlog "\[yt-search PARSER\] Could not find items array"
-        return $results
-    }
+    # Extract each result by looking for videoId patterns
+    set pos 0
+    set max_iterations 10
+    set iteration 0
     
-    # Get substring from items onwards
-    set items_content [string range $json $pos end]
-    
-    # Count items and extract videoId and title pairs
-    set count 0
-    set search_pos 0
-    
-    while {1} {
+    while {$iteration < $max_iterations} {
+        incr iteration
+        
         # Find next videoId
-        set vid_pos [string first "\"videoId\":" $items_content $search_pos]
-        if {$vid_pos < 0} {break}
+        set vid_idx [string first "\"videoId\"" $items_json $pos]
+        if {$vid_idx < 0} {
+            putlog "\[yt-search PARSER\] No more videoIds found after pos $pos"
+            break
+        }
         
-        # Extract videoId value - find the quoted string after "videoId":
-        set quote_start [string first "\"" $items_content [expr {$vid_pos + 11}]]
-        if {$quote_start < 0} {break}
+        putlog "\[yt-search PARSER\] Found videoId at position $vid_idx"
         
-        set quote_end [string first "\"" $items_content [expr {$quote_start + 1}]]
-        if {$quote_end < 0} {break}
+        # Find the quoted value after videoId
+        set colon_idx [string first ":" $items_json $vid_idx]
+        set quote_idx [string first "\"" $items_json $colon_idx]
+        set quote_end_idx [string first "\"" $items_json [expr {$quote_idx + 1}]]
         
-        set videoId [string range $items_content [expr {$quote_start + 1}] [expr {$quote_end - 1}]]
-        
-        # Now find title after this videoId
-        # Search for "title": in the next snippet block
-        set title_search_start [expr {$quote_end + 1}]
-        set snippet_start [string first "\"snippet\":" $items_content $title_search_start]
-        
-        if {$snippet_start < 0} {
-            putlog "\[yt-search PARSER\] Could not find snippet after videoId at position $vid_pos"
-            set search_pos [expr {$quote_end + 1}]
+        if {$quote_idx < 0 || $quote_end_idx < 0} {
+            putlog "\[yt-search PARSER\] Could not extract videoId value"
+            set pos [expr {$vid_idx + 10}]
             continue
         }
         
-        set title_pos [string first "\"title\":" $items_content $snippet_start]
-        if {$title_pos < 0} {
+        set videoId [string range $items_json [expr {$quote_idx + 1}] [expr {$quote_end_idx - 1}]]
+        putlog "\[yt-search PARSER\] Extracted videoId: '$videoId' (length: [string length $videoId])"
+        
+        # Now find title in the following snippet section
+        set snippet_idx [string first "\"snippet\"" $items_json $vid_idx]
+        if {$snippet_idx < 0} {
+            putlog "\[yt-search PARSER\] Could not find snippet after videoId"
+            set pos [expr {$quote_end_idx + 1}]
+            continue
+        }
+        
+        set title_idx [string first "\"title\"" $items_json $snippet_idx]
+        if {$title_idx < 0} {
             putlog "\[yt-search PARSER\] Could not find title in snippet"
-            set search_pos [expr {$snippet_start + 1}]
+            set pos [expr {$snippet_idx + 10}]
             continue
         }
         
         # Extract title value
-        set title_quote_start [string first "\"" $items_content [expr {$title_pos + 8}]]
-        if {$title_quote_start < 0} {break}
+        set title_colon_idx [string first ":" $items_json $title_idx]
+        set title_quote_idx [string first "\"" $items_json $title_colon_idx]
+        set title_quote_end_idx [string first "\"" $items_json [expr {$title_quote_idx + 1}]]
         
-        set title_quote_end [string first "\"" $items_content [expr {$title_quote_start + 1}]]
-        if {$title_quote_end < 0} {break}
-        
-        set title [string range $items_content [expr {$title_quote_start + 1}] [expr {$title_quote_end - 1}]]
-        set title [json_unescape_basic $title]
-        
-        # Add result if both videoId and title are found
-        if {$videoId ne "" && $title ne ""} {
-            set url "https://www.youtube.com/watch?v=$videoId"
-            lappend results [dict create title $title url $url videoId $videoId]
-            putlog "\[yt-search PARSER\] Result [incr count]: $title ($videoId)"
+        if {$title_quote_idx < 0 || $title_quote_end_idx < 0} {
+            putlog "\[yt-search PARSER\] Could not extract title value"
+            set pos [expr {$title_idx + 8}]
+            continue
         }
         
-        set search_pos [expr {$title_quote_end + 1}]
+        set title [string range $items_json [expr {$title_quote_idx + 1}] [expr {$title_quote_end_idx - 1}]]
+        set title [json_unescape_basic $title]
+        
+        putlog "\[yt-search PARSER\] Extracted title: '$title' (length: [string length $title])"
+        
+        # Add result
+        if {[string length $videoId] > 0 && [string length $title] > 0} {
+            set url "https://www.youtube.com/watch?v=$videoId"
+            lappend results [dict create title $title url $url videoId $videoId]
+            incr result_count
+            putlog "\[yt-search PARSER\] Result $result_count: $title"
+        } else {
+            putlog "\[yt-search PARSER\] Skipping empty result - videoId: '$videoId', title: '$title'"
+        }
+        
+        set pos [expr {$title_quote_end_idx + 1}]
     }
     
-    putlog "\[yt-search PARSER\] Extracted $count total results"
+    putlog "\[yt-search PARSER\] Total results extracted: $result_count"
     return $results
 }
 
