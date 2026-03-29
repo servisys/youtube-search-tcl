@@ -345,7 +345,7 @@ proc yt_search_cmd {nick host hand chan text} {
             set views_formatted "N/A"
         }
         
-        puthelp "PRIVMSG $chan :$nick: $i. $title | Visualizzazioni: $views_formatted | Durata: $duration"
+        puthelp "PRIVMSG $chan :$nick: $i. $title | Visualizzazioni: $views_formatted | Durata: $duration | $url"
         incr i
     }
 }
