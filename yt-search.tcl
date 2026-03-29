@@ -3,6 +3,8 @@
 # yt-search.tcl
 # YouTube search utility for Tcl using YouTube Data API v3.
 
+set yt_search_version "0.2.0"
+
 proc url_encode {s} {
     set out ""
     set len [string length $s]
@@ -168,7 +170,7 @@ proc yt_search_cmd {nick host hand chan text} {
 catch {unbind pub - "!yt" yt_search_cmd}
 bind pub - "!yt" yt_search_cmd
 
-putlog "✓ YouTube search module loaded"
+putlog "✓ \[yt-search v$yt_search_version\] YouTube search module loaded successfully"
 
 if {[info exists ::argv0] && [file tail [info script]] eq [file tail $::argv0]} {
     if {[llength $::argv] < 1} {
