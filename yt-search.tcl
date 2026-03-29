@@ -3,7 +3,7 @@
 # yt-search.tcl
 # YouTube search utility for Tcl using YouTube Data API v3.
 
-set yt_search_version "0.2.0"
+set yt_search_version "0.2.1"
 
 proc url_encode {s} {
     set out ""
@@ -35,50 +35,83 @@ proc json_unescape_basic {s} {
 proc parse_search_results {json} {
     set results {}
     
-    # Simple approach: find all videoId and title pairs
-    # Look for "videoId": "..." and then "title": "..."
-    
-    set videoid_pattern {videoId['"]\s*:\s*['"](.*?)['"]}
-    set title_pattern {title['"]\s*:\s*['"](.*?)['"]}
-    
-    # Extract all videoIds first
-    set videoIds {}
-    set pos 0
-    while {[regexp -start $pos -indices $videoid_pattern $json match] != 0} {
-        set match_text [string range $json [lindex $match 0] [lindex $match 1]]
-        if {[regexp {['"](.*?)['"]} $match_text -> vid]} {
-            lappend videoIds $vid
-        }
-        set pos [expr {[lindex $match 1] + 1}]
+    # Find items array first
+    if {![string first "\"items\":" $json] >= 0} {
+        putlog "\[yt-search PARSER\] No items array found in JSON"
+        return $results
     }
     
-    # Extract all titles
-    set titles {}
-    set pos 0
-    while {[regexp -start $pos -indices $title_pattern $json match] != 0} {
-        set match_text [string range $json [lindex $match 0] [lindex $match 1]]
-        if {[regexp {['"](.*?)['"]} $match_text -> title]} {
-            set title [json_unescape_basic $title]
-            lappend titles $title
-        }
-        set pos [expr {[lindex $match 1] + 1}]
+    # Split by individual search results using a simple approach
+    # Each result starts with "kind": "youtube#searchResult"
+    set item_pattern {kind.*?youtube#searchResult}
+    
+    # Extract all blocks between each searchResult
+    set pos [string first "\"items\":" $json]
+    if {$pos < 0} {
+        putlog "\[yt-search PARSER\] Could not find items array"
+        return $results
     }
     
-    putlog "\[yt-search PARSER\] Found [llength $videoIds] videoIDs and [llength $titles] titles"
+    # Get substring from items onwards
+    set items_content [string range $json $pos end]
     
-    # Pair them up (should be roughly aligned due to YouTube API structure)
-    set count [expr {[llength $videoIds] < [llength $titles] ? [llength $videoIds] : [llength $titles]}]
-    for {set i 0} {$i < $count} {incr i} {
-        set vid [lindex $videoIds $i]
-        set title [lindex $titles $i]
+    # Count items and extract videoId and title pairs
+    set count 0
+    set search_pos 0
+    
+    while {1} {
+        # Find next videoId
+        set vid_pos [string first "\"videoId\":" $items_content $search_pos]
+        if {$vid_pos < 0} {break}
         
-        if {$vid ne "" && $title ne ""} {
-            set url "https://www.youtube.com/watch?v=$vid"
-            lappend results [dict create title $title url $url videoId $vid]
-            putlog "\[yt-search PARSER\] Result $i: $title"
+        # Extract videoId value - find the quoted string after "videoId":
+        set quote_start [string first "\"" $items_content [expr {$vid_pos + 11}]]
+        if {$quote_start < 0} {break}
+        
+        set quote_end [string first "\"" $items_content [expr {$quote_start + 1}]]
+        if {$quote_end < 0} {break}
+        
+        set videoId [string range $items_content [expr {$quote_start + 1}] [expr {$quote_end - 1}]]
+        
+        # Now find title after this videoId
+        # Search for "title": in the next snippet block
+        set title_search_start [expr {$quote_end + 1}]
+        set snippet_start [string first "\"snippet\":" $items_content $title_search_start]
+        
+        if {$snippet_start < 0} {
+            putlog "\[yt-search PARSER\] Could not find snippet after videoId at position $vid_pos"
+            set search_pos [expr {$quote_end + 1}]
+            continue
         }
+        
+        set title_pos [string first "\"title\":" $items_content $snippet_start]
+        if {$title_pos < 0} {
+            putlog "\[yt-search PARSER\] Could not find title in snippet"
+            set search_pos [expr {$snippet_start + 1}]
+            continue
+        }
+        
+        # Extract title value
+        set title_quote_start [string first "\"" $items_content [expr {$title_pos + 8}]]
+        if {$title_quote_start < 0} {break}
+        
+        set title_quote_end [string first "\"" $items_content [expr {$title_quote_start + 1}]]
+        if {$title_quote_end < 0} {break}
+        
+        set title [string range $items_content [expr {$title_quote_start + 1}] [expr {$title_quote_end - 1}]]
+        set title [json_unescape_basic $title]
+        
+        # Add result if both videoId and title are found
+        if {$videoId ne "" && $title ne ""} {
+            set url "https://www.youtube.com/watch?v=$videoId"
+            lappend results [dict create title $title url $url videoId $videoId]
+            putlog "\[yt-search PARSER\] Result [incr count]: $title ($videoId)"
+        }
+        
+        set search_pos [expr {$title_quote_end + 1}]
     }
     
+    putlog "\[yt-search PARSER\] Extracted $count total results"
     return $results
 }
 
