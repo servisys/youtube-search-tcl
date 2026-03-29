@@ -51,15 +51,17 @@ proc parse_search_results {json} {
 }
 
 proc youtube_search {query {max_results 5}} {
-    if {![info exists ::env(YOUTUBE_API_KEY)] || [string trim $::env(YOUTUBE_API_KEY)] eq ""} {
-        error "YOUTUBE_API_KEY non impostata"
+    global youtube_api_key
+    
+    if {![info exists youtube_api_key] || [string trim $youtube_api_key] eq ""} {
+        error "youtube_api_key non definita in configurazione"
     }
 
     if {![string is integer -strict $max_results] || $max_results < 1 || $max_results > 50} {
         error "max_results deve essere un intero tra 1 e 50"
     }
 
-    set api_key $::env(YOUTUBE_API_KEY)
+    set api_key $youtube_api_key
     set encoded_query [url_encode $query]
 
     set url "https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=$max_results&q=$encoded_query&key=$api_key"

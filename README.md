@@ -17,23 +17,32 @@ Script Tcl per cercare video su YouTube tramite YouTube Data API v3.
 
 ## Configurazione
 
-Imposta la variabile ambiente con la tua chiave API:
+Aggiungi nel file di configurazione principale del bot (es. `eggdrop.conf`):
 
-```bash
-export YOUTUBE_API_KEY="YOUR_API_KEY"
+```tcl
+set youtube_api_key "YOUR_YOUTUBE_API_KEY"
+source scripts/yt-search.tcl
 ```
+
+La chiave API va definita **prima** di sourcer lo script, in modo che la variabile globale sia disponibile.
 
 ## Uso rapido
 
-```bash
-tclsh yt-search.tcl "lofi hip hop" 5
+Nel tuo `eggdrop.conf`:
+
+```tcl
+set youtube_api_key "YOUR_YOUTUBE_API_KEY"
+source scripts/yt-search.tcl
 ```
 
-Output esempio:
+Poi puoi usare direttamente la procedura:
 
-```text
-1. Lofi Hip Hop Mix
-   https://www.youtube.com/watch?v=abc123
+```tcl
+set results [youtube_search "lofi hip hop" 5]
+foreach item $results {
+    puts [dict get $item title]
+    puts [dict get $item url]
+}
 ```
 
 ## Uso come libreria
