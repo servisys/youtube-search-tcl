@@ -3,7 +3,7 @@
 # yt-search.tcl
 # YouTube search utility for Tcl using YouTube Data API v3.
 
-set yt_search_version "0.2.2"
+set yt_search_version "0.3.0"
 
 proc url_encode {s} {
     set out ""
@@ -36,10 +36,6 @@ proc parse_search_results {json} {
     set results {}
     set result_count 0
     
-    # Debug: log first 800 chars of response to see structure
-    putlog "\[yt-search PARSER\] JSON sample (first 800 chars):\n[string range $json 0 800]"
-    
-    # Very simple approach: split by items and extract videoId and title
     # Find the items array start
     set items_start [string first "\"items\":" $json]
     if {$items_start < 0} {
@@ -48,7 +44,6 @@ proc parse_search_results {json} {
     }
     
     set items_json [string range $json $items_start end]
-    putlog "\[yt-search PARSER\] Items substring length: [string length $items_json]"
     
     # Extract each result by looking for videoId patterns
     set pos 0
@@ -61,11 +56,8 @@ proc parse_search_results {json} {
         # Find next videoId
         set vid_idx [string first "\"videoId\"" $items_json $pos]
         if {$vid_idx < 0} {
-            putlog "\[yt-search PARSER\] No more videoIds found after pos $pos"
             break
         }
-        
-        putlog "\[yt-search PARSER\] Found videoId at position $vid_idx"
         
         # Find the quoted value after videoId
         set colon_idx [string first ":" $items_json $vid_idx]
@@ -73,25 +65,21 @@ proc parse_search_results {json} {
         set quote_end_idx [string first "\"" $items_json [expr {$quote_idx + 1}]]
         
         if {$quote_idx < 0 || $quote_end_idx < 0} {
-            putlog "\[yt-search PARSER\] Could not extract videoId value"
             set pos [expr {$vid_idx + 10}]
             continue
         }
         
         set videoId [string range $items_json [expr {$quote_idx + 1}] [expr {$quote_end_idx - 1}]]
-        putlog "\[yt-search PARSER\] Extracted videoId: '$videoId' (length: [string length $videoId])"
         
         # Now find title in the following snippet section
         set snippet_idx [string first "\"snippet\"" $items_json $vid_idx]
         if {$snippet_idx < 0} {
-            putlog "\[yt-search PARSER\] Could not find snippet after videoId"
             set pos [expr {$quote_end_idx + 1}]
             continue
         }
         
         set title_idx [string first "\"title\"" $items_json $snippet_idx]
         if {$title_idx < 0} {
-            putlog "\[yt-search PARSER\] Could not find title in snippet"
             set pos [expr {$snippet_idx + 10}]
             continue
         }
@@ -102,7 +90,6 @@ proc parse_search_results {json} {
         set title_quote_end_idx [string first "\"" $items_json [expr {$title_quote_idx + 1}]]
         
         if {$title_quote_idx < 0 || $title_quote_end_idx < 0} {
-            putlog "\[yt-search PARSER\] Could not extract title value"
             set pos [expr {$title_idx + 8}]
             continue
         }
@@ -110,22 +97,16 @@ proc parse_search_results {json} {
         set title [string range $items_json [expr {$title_quote_idx + 1}] [expr {$title_quote_end_idx - 1}]]
         set title [json_unescape_basic $title]
         
-        putlog "\[yt-search PARSER\] Extracted title: '$title' (length: [string length $title])"
-        
         # Add result
         if {[string length $videoId] > 0 && [string length $title] > 0} {
             set url "https://www.youtube.com/watch?v=$videoId"
             lappend results [dict create title $title url $url videoId $videoId]
             incr result_count
-            putlog "\[yt-search PARSER\] Result $result_count: $title"
-        } else {
-            putlog "\[yt-search PARSER\] Skipping empty result - videoId: '$videoId', title: '$title'"
         }
         
         set pos [expr {$title_quote_end_idx + 1}]
     }
     
-    putlog "\[yt-search PARSER\] Total results extracted: $result_count"
     return $results
 }
 
@@ -145,24 +126,16 @@ proc youtube_search {query {max_results 5}} {
 
     set url "https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=$max_results&q=$encoded_query&key=$api_key"
 
-    putlog "\[yt-search DEBUG\] Query: $query | Encoded: $encoded_query | Max results: $max_results"
-    
     set cmd [list curl -sS --connect-timeout 10 --max-time 30 $url]
     if {[catch {set response [exec {*}$cmd]} err]} {
-        putlog "\[yt-search CURL ERROR\] $err"
         error "Errore curl: $err"
     }
-
-    putlog "\[yt-search DEBUG\] Response length: [string length $response] bytes"
     
     if {[regexp {"error"\s*:\s*\{} $response]} {
-        putlog "\[yt-search API ERROR\] $response"
         error "Errore API YouTube: $response"
     }
 
-    set results [parse_search_results $response]
-    putlog "\[yt-search DEBUG\] Found [llength $results] results"
-    return $results
+    return [parse_search_results $response]
 }
 
 proc print_results {results} {
@@ -184,7 +157,6 @@ proc yt_search_cmd {nick host hand chan text} {
     global youtube_api_key
     
     set q [string trim $text]
-    putlog "\[yt-search CMD\] User: $nick | Channel: $chan | Query: '$q'"
     
     if {$q eq ""} {
         puthelp "PRIVMSG $chan :$nick: Uso: !yt <ricerca>"
@@ -192,13 +164,11 @@ proc yt_search_cmd {nick host hand chan text} {
     }
     
     if {[catch {set results [youtube_search $q 3]} err]} {
-        putlog "\[yt-search ERROR\] $err"
         puthelp "PRIVMSG $chan :$nick: Errore: $err"
         return
     }
     
     if {[llength $results] == 0} {
-        putlog "\[yt-search\] No results found for query: $q"
         puthelp "PRIVMSG $chan :$nick: Nessun risultato trovato per '$q'"
         return
     }
@@ -207,8 +177,7 @@ proc yt_search_cmd {nick host hand chan text} {
     foreach item $results {
         set title [dict get $item title]
         set url [dict get $item url]
-        puthelp "PRIVMSG $chan :$nick: $i. $title"
-        puthelp "PRIVMSG $chan :    $url"
+        puthelp "PRIVMSG $chan :$nick: $i. $title → $url"
         incr i
     }
 }
