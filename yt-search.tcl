@@ -92,7 +92,7 @@ proc print_results {results} {
     }
 }
 
-if {[file tail [info script]] eq [file tail $::argv0]} {
+if {[info exists ::argv0] && [file tail [info script]] eq [file tail $::argv0]} {
     if {[llength $::argv] < 1} {
         puts "Uso: tclsh yt-search.tcl <query> ?max_results?"
         exit 1
