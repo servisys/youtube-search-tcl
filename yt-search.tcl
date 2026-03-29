@@ -33,23 +33,38 @@ proc json_unescape_basic {s} {
 proc parse_search_results {json} {
     set results {}
 
-    # Extract each item block roughly between "id" and "snippet" occurrence.
-    set blocks [regexp -all -inline {"videoId"\s*:\s*"[^"]+"[^\{\}]*"title"\s*:\s*"(?:[^"\\]|\\.)*"} $json]
-
-    putlog "\[yt-search PARSER\] Found [llength $blocks] blocks in JSON response"
-    
-    if {[llength $blocks] == 0} {
-        putlog "\[yt-search PARSER\] JSON snippet (first 500 chars): [string range $json 0 500]"
+    # Extract items array from JSON response
+    # Match "items": [ ... ]
+    if {![regexp {"items"\s*:\s*\[(.*?)\]\s*[,}]} $json -> items_json]} {
+        putlog "\[yt-search PARSER\] Could not find items array in JSON"
+        return $results
     }
 
-    foreach block $blocks {
+    # Split items by "kind": "youtube#searchResult" to isolate each item
+    set items [regexp -all -inline {"kind"\s*:\s*"youtube#searchResult".*?(?="kind"\s*:\s*"youtube#searchResult"|$)} $items_json]
+    
+    putlog "\[yt-search PARSER\] Found [llength $items] items in array"
+
+    foreach item $items {
         set videoId ""
         set title ""
 
-        if {[regexp {"videoId"\s*:\s*"([^"]+)"} $block -> videoId] && [regexp {"title"\s*:\s*"((?:[^"\\]|\\.)*)"} $block -> title]} {
+        # Extract videoId from "id": { "kind": "youtube#video", "videoId": "..." }
+        if {[regexp {"videoId"\s*:\s*"([^"]+)"} $item -> videoId]} {
+            putlog "\[yt-search PARSER\] Extracted videoId: $videoId"
+        } else {
+            putlog "\[yt-search PARSER\] Could not extract videoId from item"
+            continue
+        }
+
+        # Extract title from "snippet": { ... "title": "..." ... }
+        if {[regexp {"title"\s*:\s*"((?:[^"\\]|\\.)*)"} $item -> title]} {
             set title [json_unescape_basic $title]
+            putlog "\[yt-search PARSER\] Extracted title: $title"
             set url "https://www.youtube.com/watch?v=$videoId"
             lappend results [dict create title $title url $url videoId $videoId]
+        } else {
+            putlog "\[yt-search PARSER\] Could not extract title from item with videoId: $videoId"
         }
     }
 
