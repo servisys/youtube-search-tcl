@@ -21,6 +21,8 @@ Aggiungi nel file di configurazione principale del bot (es. `eggdrop.conf`):
 
 ```tcl
 set youtube_api_key "YOUR_YOUTUBE_API_KEY"
+# Numero di risultati da mostrare (1-50, default: 3)
+set yt_num_results 5
 source scripts/yt-search.tcl
 ```
 
@@ -32,6 +34,8 @@ Nel tuo `eggdrop.conf`:
 
 ```tcl
 set youtube_api_key "YOUR_YOUTUBE_API_KEY"
+# Numero di risultati da mostrare (1-50, default: 3)
+set yt_num_results 5
 source scripts/yt-search.tcl
 ```
 
