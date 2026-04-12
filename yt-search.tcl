@@ -8,6 +8,15 @@ set yt_search_version "0.4.1"
 # Debug toggle (0 = off, 1 = on)
 set yt_debug 0
 
+# Number of results to display (1-50)
+if {![info exists yt_num_results]} {
+    set yt_num_results 3
+}
+if {![string is integer -strict $yt_num_results] || $yt_num_results < 1 || $yt_num_results > 50} {
+    putlog "\[yt-search\] ATTENZIONE: yt_num_results ('$yt_num_results') non valido. Valore ripristinato a 3."
+    set yt_num_results 3
+}
+
 proc url_encode {s} {
     set out ""
     set len [string length $s]
@@ -312,7 +321,7 @@ proc yt_debug_allowed {hand} {
 
 # IRC command handler for !yt
 proc yt_search_cmd {nick host hand chan text} {
-    global youtube_api_key
+    global youtube_api_key yt_num_results
     
     set q [string trim $text]
     
@@ -321,7 +330,7 @@ proc yt_search_cmd {nick host hand chan text} {
         return
     }
     
-    if {[catch {set results [youtube_search $q 3]} err]} {
+    if {[catch {set results [youtube_search $q $yt_num_results]} err]} {
         puthelp "PRIVMSG $chan :$nick: Errore: $err"
         return
     }
